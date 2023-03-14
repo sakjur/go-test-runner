@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/grafana/go-test-runner/internal/loki/logproto"
@@ -32,7 +35,10 @@ func main() {
 		panic(err)
 	}
 
-	events := []tests.Event{}
+	logFields := tags{}
+	flag.Var(&logFields, "t", "Add a key=value pair to the log output for each test")
+	flag.Parse()
+
 	r := tests.New()
 	goJSON := tests.NewGoJSON(os.Stdin)
 	for {
@@ -49,7 +55,6 @@ func main() {
 			}
 		}
 		r.Add(context.Background(), es...)
-		events = append(events, es...)
 	}
 
 	t := &tests.Tracer{
@@ -60,10 +65,20 @@ func main() {
 	traceID := t.Report(context.Background())
 	fmt.Println(traceID)
 
-	var lokiURL flagext.URLValue
-	err = lokiURL.Set("https://loki.e127.se/loki/api/v1/push")
+	logFields["traceID"] = traceID
+
+	err = sendToLoki(r, logFields)
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("got error when trying to send log to loki: %w", err))
+	}
+	tp.ForceFlush(context.Background())
+}
+
+func sendToLoki(r *tests.Run, logFields tags) error {
+	var lokiURL flagext.URLValue
+	err := lokiURL.Set("http://localhost:3100/loki/api/v1/push")
+	if err != nil {
+		return err
 	}
 
 	loki, err := lokihttp.New(prometheus.NewRegistry(), lokihttp.Config{
@@ -75,11 +90,11 @@ func main() {
 		Timeout:       3 * time.Second,
 	}, log.NewLogfmtLogger(os.Stderr))
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	channel := loki.Chan()
-	for _, event := range events {
+	for _, event := range r.Events {
 		printer, ok := event.Payload.(tests.Print)
 		if !ok {
 			continue
@@ -87,8 +102,11 @@ func main() {
 
 		kvs := []any{
 			"msg", printer.Line,
-			"traceID", traceID,
 			"package", event.Package,
+		}
+
+		for key, value := range logFields {
+			kvs = append(kvs, key, value)
 		}
 
 		if event.Test != "" {
@@ -117,8 +135,8 @@ func main() {
 		}
 	}
 
-	tp.ForceFlush(context.Background())
 	loki.Stop()
+	return nil
 }
 
 func tracerProvider(url string) (*tracesdk.TracerProvider, error) {
@@ -137,4 +155,38 @@ func tracerProvider(url string) (*tracesdk.TracerProvider, error) {
 		)),
 	)
 	return tp, nil
+}
+
+type tags map[string]string
+
+func (t *tags) String() string {
+	ts := make([]string, 0, len(*t))
+	for key, value := range *t {
+		ts = append(ts, fmt.Sprintf("-t %s=%s", key, strconv.Quote(value)))
+	}
+	return strings.Join(ts, " ")
+}
+
+func (t *tags) Set(s string) error {
+	values := strings.SplitN(s, "=", 2)
+	if len(values) != 2 {
+		return fmt.Errorf("expected tags to have the format 'key=value'")
+	}
+
+	key := values[0]
+	val := values[1]
+
+	if strings.Contains(key, " ") {
+		return fmt.Errorf("keys must not contain spaces")
+	}
+
+	if strings.HasPrefix(val, "\"") {
+		var err error
+		val, err = strconv.Unquote(val)
+		if err != nil {
+			return fmt.Errorf("failed to unquote value for tag %s", key)
+		}
+	}
+	(*t)[key] = val
+	return nil
 }

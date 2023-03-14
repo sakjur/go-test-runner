@@ -11,6 +11,7 @@ import (
 type Run struct {
 	Collection *tree.RedBlack[string, *Collection]
 
+	Events        []Event
 	EarliestEvent time.Time
 	LastEvent     time.Time
 }
@@ -45,6 +46,8 @@ func (r *Run) Add(ctx context.Context, events ...Event) {
 
 		c.add(ctx, event)
 	}
+
+	r.Events = append(r.Events, events...)
 }
 
 func (r *Run) Get(pkg string, test string) (*Test, error) {
