@@ -25,7 +25,7 @@ func (x ExploreLink) URL() (*url.URL, error) {
 				},
 				EditorMode: "code",
 				QueryType:  "range",
-				Expr:       fmt.Sprintf("{source=\"go-test-runner\"} | logfmt | traceID=\"%s\"", x.TraceID),
+				Expr:       fmt.Sprintf("{source=\"go-test-runner\"} | logfmt | traceID=\"%s\" | line_format \"{{ .msg }}\"", x.TraceID),
 			},
 		},
 		Range: timeRange{
