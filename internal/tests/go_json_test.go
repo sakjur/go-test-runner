@@ -2,10 +2,14 @@ package tests
 
 import (
 	"context"
-	"go-test-runner/internal/tree"
 	"io"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/grafana/go-test-runner/internal/tree"
 
 	"github.com/stretchr/testify/require"
 )
@@ -30,18 +34,17 @@ func TestGfTestSuite(t *testing.T) {
 
 	ctx := context.Background()
 
+	prefix := "github.com/grafana/grafana/pkg/util"
 	fn := func(_ string, c *Collection) {
-		c.Tests.Walk(ctx, testWalk(t))
+		c.Tests.Walk(ctx, testWalk(t, prefix))
 	}
-	//r.Collection.Walk(context.Background(), fn)
 
-	r.Collection.LimitedWalk(ctx, fn, tree.WalkPrefix("github.com/grafana/grafana/pkg/util"))
+	r.Collection.LimitedWalk(ctx, fn, tree.WalkPrefix(prefix))
 }
 
-func testWalk(t *testing.T) func(k string, tst *Test) {
+func testWalk(t *testing.T, prefix string) func(k string, tst *Test) {
 	t.Helper()
 	return func(k string, tst *Test) {
-		t.Log(tst.Package, tst.Name, tst.State.String())
-		tst.Subtests.Walk(context.Background(), testWalk(t))
+		assert.True(t, strings.HasPrefix(tst.Package, prefix))
 	}
 }

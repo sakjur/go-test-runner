@@ -64,8 +64,5 @@ func reportTest(ctx context.Context, tracer trace.Tracer) func(testName string, 
 			span.End(trace.WithTimestamp(max))
 
 		}
-
-		test.Subtests.Walk(ctx, reportTest(ctx, tracer))
-
 	}
 }

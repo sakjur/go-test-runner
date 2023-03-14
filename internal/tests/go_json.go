@@ -28,10 +28,8 @@ func (l goTestLine) Events() []Event {
 		Timestamp: l.Time,
 	}
 
-	e.Kind = kindStateChange
 	switch l.Action {
 	case "output":
-		e.Kind = kindPrint
 		e.Payload = Print{Line: l.Output}
 	case "start":
 		e.Payload = StateChange{NewState: StateRunning}

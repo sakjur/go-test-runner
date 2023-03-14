@@ -2,9 +2,10 @@ package tests
 
 import (
 	"context"
-	"go-test-runner/internal/tree"
-	"strings"
+	"fmt"
 	"time"
+
+	"github.com/grafana/go-test-runner/internal/tree"
 )
 
 type Run struct {
@@ -46,6 +47,18 @@ func (r *Run) Add(ctx context.Context, events ...Event) {
 	}
 }
 
+func (r *Run) Get(pkg string, test string) (*Test, error) {
+	val, ok := r.Collection.Value(pkg)
+	if !ok {
+		return nil, fmt.Errorf("package %s is not part of the test hierarchy", pkg)
+	}
+	tst, ok := val.Tests.Value(test)
+	if !ok {
+		return nil, fmt.Errorf("test %s / %s is not part of the test hierarchy", pkg, test)
+	}
+	return tst, nil
+}
+
 type Collection struct {
 	Package        string
 	Tests          *tree.RedBlack[string, *Test]
@@ -78,26 +91,13 @@ func (c *Collection) add(ctx context.Context, event Event) {
 		return
 	}
 
-	testHierarchy := []string{event.Test}
-	if c.SubtestDivider != "" {
-		testHierarchy = strings.Split(test, c.SubtestDivider)
-	}
-
-	var t *Test
-	bst := c.Tests
-	for i := range testHierarchy {
-		joined := strings.Join(testHierarchy[:i+1], c.SubtestDivider)
-		var exists bool
-		t, exists = bst.Value(joined)
-		if !exists {
-			t = &Test{
-				Package:  pkg,
-				Name:     joined,
-				Subtests: &tree.RedBlack[string, *Test]{},
-			}
-			bst.Insert(joined, t)
+	t, ok := c.Tests.Value(test)
+	if !ok {
+		t = &Test{
+			Package: pkg,
+			Name:    test,
 		}
-		bst = t.Subtests
+		c.Tests.Insert(test, t)
 	}
 
 	t.Events = append(t.Events, event)
@@ -107,9 +107,8 @@ func (c *Collection) add(ctx context.Context, event Event) {
 }
 
 type Test struct {
-	Package  string
-	Name     string
-	Subtests *tree.RedBlack[string, *Test]
+	Package string
+	Name    string
 
 	State  State
 	Events []Event
@@ -152,7 +151,6 @@ type Event struct {
 	Test    string
 
 	Timestamp time.Time
-	Kind      string
 	Payload   EventPayload
 }
 
