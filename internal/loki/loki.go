@@ -5,14 +5,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/prometheus/common/config"
+
 	"github.com/go-kit/log"
 	"github.com/grafana/dskit/backoff"
 	"github.com/grafana/dskit/flagext"
+	"github.com/grafana/go-test-runner/internal/cfg"
 	"github.com/grafana/go-test-runner/internal/loki/logproto"
 	"github.com/grafana/go-test-runner/internal/loki/lokihttp"
 	"github.com/grafana/go-test-runner/internal/tests"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 )
 
@@ -21,20 +23,24 @@ type EventSender struct {
 	r      *tests.Run
 }
 
-func New(r *tests.Run) (*EventSender, error) {
+func New(r *tests.Run, conf cfg.LokiOptions) (*EventSender, error) {
 	var lokiURL flagext.URLValue
-	err := lokiURL.Set("http://localhost:3100/loki/api/v1/push")
+	err := lokiURL.Set(conf.URL)
 	if err != nil {
 		return nil, err
 	}
 
 	loki, err := lokihttp.New(prometheus.NewRegistry(), lokihttp.Config{
-		URL:           lokiURL,
-		BatchWait:     time.Second,
-		BatchSize:     1500,
-		Client:        config.HTTPClientConfig{},
-		BackoffConfig: backoff.Config{},
-		Timeout:       3 * time.Second,
+		URL:       lokiURL,
+		BatchWait: conf.BatchWait,
+		BatchSize: conf.BatchSize,
+		Client:    config.HTTPClientConfig{},
+		BackoffConfig: backoff.Config{
+			MinBackoff: 100 * time.Millisecond,
+			MaxBackoff: 2 * time.Second,
+			MaxRetries: conf.Retries,
+		},
+		Timeout: conf.Timeout,
 	}, log.NewLogfmtLogger(os.Stderr))
 	if err != nil {
 		return nil, err

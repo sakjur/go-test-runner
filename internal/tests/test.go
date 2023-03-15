@@ -3,9 +3,12 @@ package tests
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/grafana/go-test-runner/internal/tracing"
+
+	"github.com/grafana/go-test-runner/internal/cfg"
 
 	"go.opentelemetry.io/otel/attribute"
 
@@ -22,17 +25,42 @@ type Run struct {
 	EarliestEvent time.Time
 	LastEvent     time.Time
 
-	Context context.Context
-	Fields  Tags
-	Tracer  trace.Tracer
+	Context        context.Context
+	Fields         cfg.Tags
+	Tracer         trace.Tracer
+	TracingOptions cfg.TracingOptions
+	TraceID        string
+
+	after func()
 }
 
-func New(tracer trace.Tracer, fields Tags) *Run {
-	return &Run{
-		Collection: map[string]*Collection{},
-		Fields:     fields,
-		Tracer:     tracer,
+func New(fields cfg.Tags, tracingOptions cfg.TracingOptions) (*Run, error) {
+	tp, err := tracing.JaegerProvider(tracingOptions.URL)
+	if err != nil {
+		return nil, err
 	}
+	tracer := tp.Tracer("go-test-runner")
+
+	ctx, span := tracer.Start(context.Background(), "test/go")
+	traceID := span.SpanContext().TraceID().String()
+	fields["traceID"] = traceID
+	return &Run{
+		Collection:     map[string]*Collection{},
+		Fields:         fields,
+		Tracer:         tracer,
+		TracingOptions: tracingOptions,
+		TraceID:        traceID,
+		Context:        ctx,
+
+		after: func() {
+			span.End()
+			tp.ForceFlush(context.Background())
+		},
+	}, nil
+}
+
+func (r *Run) Stop() {
+	r.after()
 }
 
 func (r *Run) findCollectionParent(test string) *Collection {
@@ -65,12 +93,11 @@ func (r *Run) Handle(event Event) error {
 			SubtestDivider: "/",
 			Tests:          map[string]*Test{},
 			ctx:            ctx,
-			tracer:         r.Tracer,
 		}
 		r.Collection[pkg] = c
 	}
 
-	c.add(event)
+	r.addToCollection(c, event)
 
 	r.Events = append(r.Events, event)
 	return nil
@@ -96,17 +123,16 @@ type Collection struct {
 	State  State
 	Events []Event
 
-	ctx    context.Context
-	tracer trace.Tracer
+	ctx context.Context
 }
 
-func (c *Collection) add(event Event) {
+func (r *Run) addToCollection(c *Collection, event Event) {
 	pkg := event.Package
 	test := event.Test
 
 	if test == "" {
 		c.Events = append(c.Events, event)
-		handlePayload(c, event.Payload)
+		handlePayload(c, event.Payload, r.TracingOptions.LogsAsEvents)
 		return
 	}
 
@@ -116,7 +142,7 @@ func (c *Collection) add(event Event) {
 		if parent := c.findTestParent(test); parent != nil {
 			ctx = parent.ctx
 		}
-		ctx, span := c.tracer.Start(ctx, "test/runTest")
+		ctx, span := r.Tracer.Start(ctx, "test/runTest")
 		span.SetAttributes(attribute.String("name", test), attribute.String("package", pkg))
 		t = &Test{
 			Package: pkg,
@@ -127,7 +153,7 @@ func (c *Collection) add(event Event) {
 	}
 
 	t.Events = append(t.Events, event)
-	handlePayload(t, event.Payload)
+	handlePayload(t, event.Payload, r.TracingOptions.LogsAsEvents)
 }
 
 func (c *Collection) findTestParent(test string) *Test {
@@ -157,7 +183,7 @@ type updateState interface {
 	SetState(State)
 }
 
-func handlePayload(handler updateState, payload EventPayload) {
+func handlePayload(handler updateState, payload EventPayload, logsToEvents bool) {
 	span := trace.SpanFromContext(handler.Context())
 	switch ev := payload.(type) {
 	case StateChange:
@@ -179,7 +205,9 @@ func handlePayload(handler updateState, payload EventPayload) {
 			span.End()
 		}
 	case Print:
-		span.AddEvent(ev.Line)
+		if logsToEvents {
+			span.AddEvent(ev.Line)
+		}
 	}
 }
 
@@ -256,37 +284,3 @@ type Print struct {
 }
 
 func (Print) isEventPayload() {}
-
-type Tags map[string]string
-
-func (t Tags) String() string {
-	ts := make([]string, 0, len(t))
-	for key, value := range t {
-		ts = append(ts, fmt.Sprintf("-t %s=%s", key, strconv.Quote(value)))
-	}
-	return strings.Join(ts, " ")
-}
-
-func (t Tags) Set(s string) error {
-	values := strings.SplitN(s, "=", 2)
-	if len(values) != 2 {
-		return fmt.Errorf("expected tags to have the format 'key=value'")
-	}
-
-	key := values[0]
-	val := values[1]
-
-	if strings.Contains(key, " ") {
-		return fmt.Errorf("keys must not contain spaces")
-	}
-
-	if strings.HasPrefix(val, "\"") {
-		var err error
-		val, err = strconv.Unquote(val)
-		if err != nil {
-			return fmt.Errorf("failed to unquote value for tag %s", key)
-		}
-	}
-	t[key] = val
-	return nil
-}

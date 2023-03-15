@@ -1,17 +1,16 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 
-	"github.com/grafana/go-test-runner/internal/console"
+	"github.com/grafana/go-test-runner/internal/cfg"
 
+	"github.com/grafana/go-test-runner/internal/console"
 	"github.com/grafana/go-test-runner/internal/loki"
 	"github.com/grafana/go-test-runner/internal/tests"
-	"github.com/grafana/go-test-runner/internal/tracing"
 )
 
 type eventHandler interface {
@@ -23,34 +22,48 @@ type stoppable interface {
 }
 
 func main() {
-	fields := tests.Tags{}
+	conf := cfg.Config{}
+	fields := cfg.Tags{}
 	flag.Var(&fields, "t", "Add a key=value pair to the log output for each test")
+	file := flag.String("c", "", "Path to configuration file")
 	flag.Parse()
 
-	tp, err := tracing.JaegerProvider("http://localhost:14268/api/traces")
-	defer tp.ForceFlush(context.Background())
+	if *file != "" {
+		f, err := os.Open(*file)
+		if err != nil {
+			panic(err)
+		}
+		conf, err = conf.Parse(*file, f)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	tracingOptions, err := conf.Tracing()
 	if err != nil {
 		panic(err)
 	}
-	tracer := tp.Tracer("go-test-runner")
 
-	r := tests.New(tracer, fields)
+	r, err := tests.New(fields, tracingOptions)
+	if err != nil {
+		panic(err)
+	}
 	r.CollectionDivider = "/"
 
-	logClient, err := loki.New(r)
+	lokiOptions, err := conf.Loki()
 	if err != nil {
 		panic(err)
 	}
 
-	ctx, span := tracer.Start(context.Background(), "test/go")
-	traceID := span.SpanContext().TraceID().String()
-	r.Fields["traceID"] = traceID
-	r.Context = ctx
+	logClient, err := loki.New(r, lokiOptions)
+	if err != nil {
+		panic(err)
+	}
 
 	handlers := []eventHandler{
 		r,
 		logClient,
-		console.New(traceID),
+		console.New(r.TraceID),
 	}
 
 	goJSON := tests.NewGoJSON(os.Stdin)
@@ -78,6 +91,4 @@ func main() {
 			stopper.Stop()
 		}
 	}
-
-	span.End()
 }
