@@ -1,5 +1,6 @@
 server:
   http_listen_port: 3200
+  grpc_server_max_recv_msg_size: 16777216
 
 distributor:
   receivers:                           # this configuration will listen on all ports and protocols that tempo is capable of.
@@ -44,3 +45,4 @@ storage:
 
 overrides:
   metrics_generator_processors: [service-graphs, span-metrics] # enables metrics generator
+  max_bytes_per_trace: 16777216

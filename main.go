@@ -28,7 +28,15 @@ func main() {
 	r := tests.New(tracer, fields)
 	r.CollectionDivider = "/"
 
+	logClient, err := loki.New()
+	if err != nil {
+		panic(err)
+	}
+
 	ctx, span := tracer.Start(context.Background(), "test/go")
+	traceID := span.SpanContext().TraceID().String()
+	r.Fields["traceID"] = traceID
+
 	goJSON := tests.NewGoJSON(os.Stdin)
 	for {
 		es, err := goJSON.ReadLine()
@@ -39,13 +47,17 @@ func main() {
 			panic(err)
 		}
 		for _, e := range es {
+			err := logClient.Send(r, e)
+			if err != nil {
+				fmt.Fprint(os.Stderr, "got error while sending to loki: ", err)
+			}
 			if printer, ok := e.Payload.(tests.Print); ok {
 				fmt.Print(printer.Line)
 			}
 		}
 		r.Add(ctx, es...)
 	}
-	traceID := span.SpanContext().TraceID().String()
+
 	span.End()
 
 	fmt.Println("TraceID: ", traceID)
@@ -55,10 +67,4 @@ func main() {
 		DataSourceUID: "loki",
 		TraceID:       traceID,
 	})
-	r.Fields["traceID"] = traceID
-
-	err = loki.SendToLoki(r)
-	if err != nil {
-		panic(fmt.Errorf("got error when trying to send log to loki: %w", err))
-	}
 }
