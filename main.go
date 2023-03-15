@@ -14,10 +14,21 @@ import (
 )
 
 func main() {
-	r := tests.New()
-	flag.Var(&r.Fields, "t", "Add a key=value pair to the log output for each test")
+	fields := tests.Tags{}
+	flag.Var(&fields, "t", "Add a key=value pair to the log output for each test")
 	flag.Parse()
 
+	tp, err := tracing.JaegerProvider("http://localhost:14268/api/traces")
+	defer tp.ForceFlush(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	tracer := tp.Tracer("go-test-runner")
+
+	r := tests.New(tracer, fields)
+	r.CollectionDivider = "/"
+
+	ctx, span := tracer.Start(context.Background(), "test/go")
 	goJSON := tests.NewGoJSON(os.Stdin)
 	for {
 		es, err := goJSON.ReadLine()
@@ -32,20 +43,11 @@ func main() {
 				fmt.Print(printer.Line)
 			}
 		}
-		r.Add(context.Background(), es...)
+		r.Add(ctx, es...)
 	}
+	traceID := span.SpanContext().TraceID().String()
+	span.End()
 
-	tp, err := tracing.JaegerProvider("http://localhost:14268/api/traces")
-	defer tp.ForceFlush(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	t := &tests.Tracer{
-		Run:    r,
-		Tracer: tp.Tracer("go-test-runner"),
-	}
-
-	traceID := t.Report(context.Background())
 	fmt.Println("TraceID: ", traceID)
 	fmt.Println(explore.ExploreLink{
 		GrafanaURL:    "http://localhost:3000",
