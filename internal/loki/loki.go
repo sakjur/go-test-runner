@@ -18,9 +18,10 @@ import (
 
 type EventSender struct {
 	client lokihttp.Client
+	r      *tests.Run
 }
 
-func New() (*EventSender, error) {
+func New(r *tests.Run) (*EventSender, error) {
 	var lokiURL flagext.URLValue
 	err := lokiURL.Set("http://localhost:3100/loki/api/v1/push")
 	if err != nil {
@@ -39,10 +40,10 @@ func New() (*EventSender, error) {
 		return nil, err
 	}
 
-	return &EventSender{client: loki}, nil
+	return &EventSender{client: loki, r: r}, nil
 }
 
-func (e EventSender) Send(r *tests.Run, event tests.Event) error {
+func (e EventSender) Handle(event tests.Event) error {
 	channel := e.client.Chan()
 	printer, ok := event.Payload.(tests.Print)
 	if !ok {
@@ -54,12 +55,12 @@ func (e EventSender) Send(r *tests.Run, event tests.Event) error {
 		"package", event.Package,
 	}
 
-	for key, value := range r.Fields {
+	for key, value := range e.r.Fields {
 		kvs = append(kvs, key, value)
 	}
 
 	if event.Test != "" {
-		test, err := r.Get(event.Package, event.Test)
+		test, err := e.r.Get(event.Package, event.Test)
 		if err != nil {
 			return err
 		}

@@ -22,8 +22,9 @@ type Run struct {
 	EarliestEvent time.Time
 	LastEvent     time.Time
 
-	Fields Tags
-	Tracer trace.Tracer
+	Context context.Context
+	Fields  Tags
+	Tracer  trace.Tracer
 }
 
 func New(tracer trace.Tracer, fields Tags) *Run {
@@ -48,32 +49,31 @@ func (r *Run) findCollectionParent(test string) *Collection {
 	return nil
 }
 
-func (r *Run) Add(ctx context.Context, events ...Event) {
-	for _, event := range events {
-		pkg := event.Package
-		c, exists := r.Collection[pkg]
-		if !exists {
-			ctx := ctx
-			if parent := r.findCollectionParent(event.Package); parent != nil {
-				ctx = parent.ctx
-			}
-			ctx, span := r.Tracer.Start(ctx, "test/package")
-			span.SetAttributes(attribute.String("packageName", event.Package))
-
-			c = &Collection{
-				Package:        event.Package,
-				SubtestDivider: "/",
-				Tests:          map[string]*Test{},
-				ctx:            ctx,
-				tracer:         r.Tracer,
-			}
-			r.Collection[pkg] = c
+func (r *Run) Handle(event Event) error {
+	pkg := event.Package
+	c, exists := r.Collection[pkg]
+	if !exists {
+		ctx := r.Context
+		if parent := r.findCollectionParent(event.Package); parent != nil {
+			ctx = parent.ctx
 		}
+		ctx, span := r.Tracer.Start(ctx, "test/package")
+		span.SetAttributes(attribute.String("packageName", event.Package))
 
-		c.add(event)
+		c = &Collection{
+			Package:        event.Package,
+			SubtestDivider: "/",
+			Tests:          map[string]*Test{},
+			ctx:            ctx,
+			tracer:         r.Tracer,
+		}
+		r.Collection[pkg] = c
 	}
 
-	r.Events = append(r.Events, events...)
+	c.add(event)
+
+	r.Events = append(r.Events, event)
+	return nil
 }
 
 func (r *Run) Get(pkg string, test string) (*Test, error) {
