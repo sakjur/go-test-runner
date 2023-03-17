@@ -18,15 +18,24 @@ var defaults = Tags{
 
 	TracingKind:         "jaeger",
 	TracingURL:          "http://localhost:14268/api/traces",
-	TracingLogsAsEvents: "true",
+	TracingLogsAsEvents: "false",
+
+	ConsoleLevel: "raw",
+
+	GrafanaURL:               "http://localhost:3000/",
+	GrafanaLokiDatasource:    "loki",
+	GrafanaLokiDatasourceUID: "loki",
 }
 
 func (c Config) Get(key string) (string, error) {
-
-	if opt, ok := os.LookupEnv("GT_" + key); ok {
+	prefixedKey := "GT_" + key
+	if opt, ok := os.LookupEnv(prefixedKey); ok {
 		return opt, nil
 	}
 	if opt, ok := c[key]; ok {
+		return opt, nil
+	}
+	if opt, ok := c[prefixedKey]; ok {
 		return opt, nil
 	}
 	if opt, ok := defaults[key]; ok {

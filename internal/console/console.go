@@ -6,20 +6,24 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/grafana/go-test-runner/internal/cfg"
 	"github.com/grafana/go-test-runner/internal/grafana"
-
 	"github.com/grafana/go-test-runner/internal/tests"
 )
 
 type Console struct {
-	failedTests map[string][]string
-	traceID     string
+	printLevel     cfg.PrintLevel
+	grafanaOptions cfg.GrafanaOptions
+	failedTests    map[string][]string
+	traceID        string
 }
 
-func New(traceID string) *Console {
+func New(traceID string, opts cfg.ConsoleOptions, grafanaOpts cfg.GrafanaOptions) *Console {
 	return &Console{
-		failedTests: map[string][]string{},
-		traceID:     traceID,
+		printLevel:     opts.PrintLevel,
+		failedTests:    map[string][]string{},
+		traceID:        traceID,
+		grafanaOptions: grafanaOpts,
 	}
 }
 
@@ -40,7 +44,9 @@ func (c *Console) FailedTests() []string {
 func (c *Console) Handle(e tests.Event) error {
 	switch ev := e.Payload.(type) {
 	case tests.Print:
-		fmt.Print(ev.Line)
+		if c.printLevel == cfg.PrintLevelRaw {
+			fmt.Print(ev.Line)
+		}
 	case tests.StateChange:
 		if e.Test != "" && ev.NewState == tests.StateFailed {
 			c.failedTests[e.Package] = append(c.failedTests[e.Package], e.Test)
@@ -56,10 +62,12 @@ func (c *Console) Stop() {
 	}
 
 	fmt.Println("TraceID: ", c.traceID)
-	fmt.Println(grafana.ExploreLink{
-		GrafanaURL:    "http://localhost:3000",
-		DataSource:    "loki",
-		DataSourceUID: "loki",
-		TraceID:       c.traceID,
-	})
+	if c.grafanaOptions.URL != "" {
+		fmt.Println(grafana.LokiExploreLink{
+			GrafanaURL:    c.grafanaOptions.URL,
+			DataSource:    c.grafanaOptions.LokiDatasource,
+			DataSourceUID: c.grafanaOptions.LokiDatasourceUID,
+			TraceID:       c.traceID,
+		})
+	}
 }

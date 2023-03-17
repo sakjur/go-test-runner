@@ -18,7 +18,7 @@ type TracingOptions struct {
 	LogsAsEvents bool
 }
 
-func (c *Config) Tracing() (TracingOptions, error) {
+func (c Config) Tracing() (TracingOptions, error) {
 	kind, rawKindErr := c.Get(TracingKind)
 	url, urlErr := c.Get(TracingURL)
 	rawLogsAsEvents, rawLogsAsEventsErr := c.Get(TracingLogsAsEvents)

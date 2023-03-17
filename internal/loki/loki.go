@@ -5,8 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/prometheus/common/config"
-
 	"github.com/go-kit/log"
 	"github.com/grafana/dskit/backoff"
 	"github.com/grafana/dskit/flagext"
@@ -15,6 +13,7 @@ import (
 	"github.com/grafana/go-test-runner/internal/loki/lokihttp"
 	"github.com/grafana/go-test-runner/internal/tests"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 )
 

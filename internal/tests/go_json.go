@@ -16,11 +16,6 @@ type goTestLine struct {
 	Test    string
 }
 
-const (
-	kindPrint       = "print"
-	kindStateChange = "stateChange"
-)
-
 func (l goTestLine) Events() []Event {
 	e := Event{
 		Package:   l.Package,

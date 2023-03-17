@@ -6,14 +6,14 @@ import (
 	"net/url"
 )
 
-type ExploreLink struct {
+type LokiExploreLink struct {
 	GrafanaURL    string
 	DataSource    string
 	DataSourceUID string
 	TraceID       string
 }
 
-func (x ExploreLink) URL() (*url.URL, error) {
+func (x LokiExploreLink) URL() (*url.URL, error) {
 	encoded, err := json.Marshal(query{
 		DataSource: x.DataSource,
 		Queries: []queryList{
@@ -47,7 +47,7 @@ func (x ExploreLink) URL() (*url.URL, error) {
 	return parsedURL, nil
 }
 
-func (x ExploreLink) String() string {
+func (x LokiExploreLink) String() string {
 	parsedURL, err := x.URL()
 	if err != nil {
 		panic(err)
